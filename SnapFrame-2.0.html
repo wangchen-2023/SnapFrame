@@ -1,0 +1,723 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>万能表情包随心切图工具·高精全联动完美版</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: sans-serif; background: #fdf6f0; color: #5a4b41; margin: 0; padding: 0; user-select: none; -webkit-user-select: none; overflow: hidden; }
+        .layout { display: flex; height: 100vh; width: 100vw; }
+        
+        /* 侧边栏 */
+        .sidebar { width: 350px; background: #fff; padding: 20px; border-right: 1px solid #e6dcd3; box-shadow: 2px 0 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 14px; overflow-y: auto; z-index: 10; }
+        .main-panel { flex: 1; padding: 20px; overflow-y: auto; background: #faf5f0; display: flex; flex-direction: column; gap: 20px; }
+        
+        /* 轻奢滚动条 */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #fdf6f0; }
+        ::-webkit-scrollbar-thumb { background: #cca485; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #b58d6f; }
+        
+        .control-group { background: #fdfaf7; padding: 12px; border-radius: 8px; border: 1px solid #ebdcd0; }
+        .control-group label { display: block; font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #8c6d53; }
+        .slider-item { margin-bottom: 10px; }
+        .slider-item div { display: flex; justify-content: space-between; font-size: 12px; color: #a08d80; margin-bottom: 2px; }
+        .slider-item input[type="range"] { width: 100%; min-height: 20px; }
+        
+        /* 换色板和按钮布局 */
+        .color-picker-wrapper { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #a08d80; margin-top: 5px; }
+        .color-picker-wrapper input { border: none; width: 40px; height: 25px; cursor: pointer; background: transparent; }
+
+        #drop-zone { border: 3px dashed #cca485; padding: 15px; background: #fff; cursor: pointer; border-radius: 10px; text-align: center; font-weight: bold; font-size: 14px; }
+        
+        .btn { background: #cca485; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 14px; display: flex; align-items: center; justify-content: center; gap: 6px; }
+        .btn:hover { background: #b58d6f; }
+        .btn-add { background: #00b894; margin-bottom: 5px; box-shadow: 0 3px 6px rgba(0,184,148,0.2); }
+        .btn-add:hover { background: #009475; }
+
+        /* 视窗 A 容器包裹，实现非图片本身的画布缩放 */
+        .preview-section { background: #fff; padding: 15px; border-radius: 10px; border: 1px solid #e6dcd3; text-align: center; display: none; }
+        .canvas-scroll-container { width: 100%; overflow: auto; border: 1px dashed #ebdcd0; padding: 10px; background: #fdfdfd; max-height: 55vh; }
+        
+        .section-title { font-size: 14px; font-weight: bold; color: #8c6d53; margin-bottom: 10px; text-align: left; display: flex; align-items: center; gap: 5px; }
+        .canvas-container { position: relative; display: inline-block; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden; transform-origin: top left; }
+        #preview-img { display: block; height: auto; pointer-events: none; }
+        #overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+
+        .result-section { display: none; }
+        .result-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; margin-top: 10px; }
+        
+        .emoji-box { background: #fff; padding: 8px; border: 2px solid #e6dcd3; border-radius: 8px; text-align: center; cursor: move; transition: border-color 0.2s, transform 0.2s; position: relative; touch-action: none; }
+        .emoji-box:hover { border-color: #cca485; transform: translateY(-2px); }
+        .emoji-box.active { border-color: #ff7675; box-shadow: 0 0 10px rgba(255,118,117,0.3); }
+        .emoji-box canvas { width: 100%; height: auto; display: block; border-radius: 4px; background: #fff; }
+        .emoji-box small { font-size: 12px; color: #a08d80; margin-top: 6px; display: block; pointer-events: none; }
+        .emoji-box.fade-out { opacity: 0; transform: scale(0.5); }
+
+        .delete-btn { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; background: #ff7675; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.2); border: 2px solid #fff; z-index: 5; }
+        .delete-btn:hover { background: #ff4757; transform: scale(1.1); }
+        
+        #loading-toast { display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(45, 52, 54, 0.95); color: #fff; padding: 14px 28px; border-radius: 20px; font-size: 14px; z-index: 999; box-shadow: 0 4px 15px rgba(0,0,0,0.3); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="loading-toast">📦 正在努力打包中，请稍候喵...</div>
+
+    <div class="layout">
+        <div class="sidebar">
+            <div id="drop-zone">把任意大图拖到这里开始</div>
+            
+            <div class="control-group" id="global-size-group" style="display: none;">
+                <label>🗺️ 第一步：视窗调节与宏观控制</label>
+                <button class="btn btn-add" id="btn-add-box">➕ 凭空诞生一个新雷达框喵</button>
+                
+                <div class="slider-item" style="margin-top: 12px; border-bottom: 1px dashed #ebdcd0; padding-bottom: 8px;">
+                    <div><span style="color:#ff7675; font-weight:bold;">🔎 视窗 A 操作台显示放大</span><span id="txt-view-zoom">100%</span></div>
+                    <input type="range" id="param-view-zoom" min="50" max="300" value="100">
+                </div>
+
+                <div class="color-picker-wrapper">
+                    <span>🎨 自定义雷达选框颜色喵：</span>
+                    <input type="color" id="param-box-color" value="#ff4757">
+                </div>
+
+                <div class="slider-item" style="margin-top: 12px;">
+                    <div><span>📦 所有框统一宽度</span><span id="txt-global-w">120</span></div>
+                    <input type="range" id="param-global-w" min="20" max="800" value="120">
+                </div>
+                <div class="slider-item">
+                    <div><span>📦 所有框统一高度</span><span id="txt-global-h">120</span></div>
+                    <input type="range" id="param-global-h" min="20" max="800" value="120">
+                </div>
+            </div>
+
+            <div class="control-group" id="active-emoji-panel" style="display: none; border: 2px solid #ff7675; background: #fffcfb;">
+                <label style="color: #ff7675; font-size: 14px;">
+                    🎯 当前选中：表情 <span id="active-emoji-num">1</span>
+                </label>
+                
+                <div style="font-size: 11px; font-weight: bold; color: #8c6d53; margin-bottom: 6px; border-bottom: 1px dashed #ebdcd0; padding-bottom: 4px;">📡 调整雷达选框物理位置</div>
+                <div class="slider-item">
+                    <div><span>红框左移/右移 (X轴)</span><span id="txt-frame-x">0</span></div>
+                    <input type="range" id="param-frame-x" min="0" max="2000" value="0">
+                </div>
+                <div class="slider-item">
+                    <div><span>红框上移/下移 (Y轴)</span><span id="txt-frame-y">0</span></div>
+                    <input type="range" id="param-frame-y" min="0" max="2000" value="0">
+                </div>
+
+                <div style="font-size: 11px; font-weight: bold; color: #8c6d53; margin-bottom: 6px; border-bottom: 1px dashed #ebdcd0; padding-bottom: 4px; margin-top: 12px;">🔎 内部画幅微调 (拉动视窗B也会完美同步)</div>
+                <div class="slider-item">
+                    <div><span>内视野左右偏移</span><span id="txt-active-ox">0</span></div>
+                    <input type="range" id="param-active-ox" min="-400" max="400" value="0">
+                </div>
+                <div class="slider-item">
+                    <div><span>内视野上下偏移</span><span id="txt-active-oy">0</span></div>
+                    <input type="range" id="param-active-oy" min="-400" max="400" value="0">
+                </div>
+                <div class="slider-item">
+                    <div><span>内画幅缩放比例</span><span id="txt-active-scale">1.00</span>x</div>
+                    <input type="range" id="param-active-scale" min="20" max="300" value="100">
+                </div>
+            </div>
+            
+            <div id="editor-title" style="font-weight: bold; color: #ff7675; text-align: center; display: none;">
+                💡 <span style="color:#8c6d53; font-size:13px;">全新双向联动秘籍</span><br>
+                <div style="font-size: 11px; color: #a08d80; font-weight: normal; margin-top: 5px; text-align: left; line-height: 1.4;">
+                    🟢 <b>绝不乱位</b>：现在无论是拖动视窗 A 的红框，还是拖动视窗 B 里的内容，两边的物理选区位置都会**完美合并计算同步变动**！<br>
+                    🟢 <b>高清放大</b>：觉得原图红框太小不好点？拉动上方的「操作台放大」就可以无损放大视窗 A 进行超级精准的对准喵！
+                </div>
+            </div>
+
+            <button class="btn" id="download-all" style="display: none; margin-top: auto; background: #ff7675;">🚀 安全下载全部表情包喵</button>
+        </div>
+
+        <div class="main-panel">
+            <input type="file" id="file-input" accept="image/*" style="display: none;">
+            
+            <div id="hint-text" style="text-align: center; color: #a08d80; margin-top: 50px;">
+                <h3>🗺️ 完美全同步·自由雷达切图工具</h3>
+                <p>支持视窗A高精无损放大操作、自定义雷达颜色、视窗B反向联动雷达不乱位！</p>
+            </div>
+
+            <div class="preview-section" id="preview-sec">
+                <div class="section-title">📡 视窗 A：高级对齐视窗（可使用左侧滑块放大操作台进行高精细选框喵）</div>
+                <div class="canvas-scroll-container">
+                    <div class="canvas-container" id="zoom-container">
+                        <img id="preview-img" src="" alt="原图" draggable="false">
+                        <canvas id="overlay-canvas"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="result-section" id="result-sec">
+                <div class="section-title">✨ 视窗 B：切图结果预览（鼠标在此处拖拽画面，视窗A红框会反向实时跟踪移动！）</div>
+                <div class="result-container" id="result"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const resultDiv = document.getElementById('result');
+        const hintText = document.getElementById('hint-text');
+        const toast = document.getElementById('loading-toast');
+        const previewImg = document.getElementById('preview-img');
+        const overlayCanvas = document.getElementById('overlay-canvas');
+        const zoomContainer = document.getElementById('zoom-container');
+        
+        const activePanel = document.getElementById('active-emoji-panel');
+        const activeNumSpan = document.getElementById('active-emoji-num');
+        const frameXInput = document.getElementById('param-frame-x');
+        const frameYInput = document.getElementById('param-frame-y');
+        const activeOxInput = document.getElementById('param-active-ox');
+        const activeOyInput = document.getElementById('param-active-oy');
+        const activeScaleInput = document.getElementById('param-active-scale');
+        const boxColorInput = document.getElementById('param-box-color');
+        const viewZoomInput = document.getElementById('param-view-zoom');
+        
+        let currentImg = null;
+        let activeIdx = 0; 
+        let emojiConfigs = []; 
+        let boxIdCounter = 0;
+        let boxColor = "#ff4757"; // 默认经典红
+
+        let isDraggingBox = false;     
+        let dragBoxIdx = -1;
+        let dragStartMouseX = 0, dragStartMouseY = 0;
+        let dragStartBoxX = 0, dragStartBoxY = 0;
+
+        let isDraggingCanvasView = false;
+        let dragViewStartMouseX = 0, dragViewStartMouseY = 0;
+        let dragViewStartBoxX = 0, dragViewStartBoxY = 0;
+        let dragViewStartOffsetX = 0, dragViewStartOffsetY = 0;
+
+        // 🎨 实时换色监听
+        boxColorInput.oninput = function(e) {
+            boxColor = e.target.value;
+            drawRadarOverlay();
+        };
+
+        // 🔎 视窗 A 无损独立操作台放大
+        viewZoomInput.oninput = function(e) {
+            const zoomVal = e.target.value;
+            document.getElementById('txt-view-zoom').innerText = zoomVal + '%';
+            zoomContainer.style.transform = `scale(${zoomVal / 100})`;
+        };
+
+        // 统一改长宽
+        document.getElementById('param-global-w').oninput = function(e) {
+            document.getElementById('txt-global-w').innerText = e.target.value;
+            const w = parseFloat(e.target.value);
+            emojiConfigs.forEach(c => { c.baseW = w; });
+            refreshEverything();
+        };
+        document.getElementById('param-global-h').oninput = function(e) {
+            document.getElementById('txt-global-h').innerText = e.target.value;
+            const h = parseFloat(e.target.value);
+            emojiConfigs.forEach(c => { c.baseH = h; });
+            refreshEverything();
+        };
+
+        // ➕ 凭空创建自由框
+        document.getElementById('btn-add-box').onclick = function() {
+            if(!currentImg) return;
+            boxIdCounter++;
+            const gw = parseFloat(document.getElementById('param-global-w').value) || 120;
+            const gh = parseFloat(document.getElementById('param-global-h').value) || 120;
+            
+            const defaultX = Math.floor((currentImg.width - gw) / 2) + (boxIdCounter % 4 * 20);
+            const defaultY = Math.floor((currentImg.height - gh) / 2) + (boxIdCounter % 4 * 20);
+
+            emojiConfigs.push({
+                id: boxIdCounter,
+                baseX: defaultX, baseY: defaultY, baseW: gw, baseH: gh,
+                offsetX: 0, offsetY: 0, sizeScale: 1.0, canvas: null, deleted: false
+            });
+
+            renderAllResultBoxes();
+            drawRadarOverlay();
+            selectEmoji(emojiConfigs.length - 1);
+        };
+
+        // 侧边栏滑块操控
+        frameXInput.oninput = function(e) {
+            if(!emojiConfigs[activeIdx]) return;
+            emojiConfigs[activeIdx].baseX = parseFloat(e.target.value);
+            document.getElementById('txt-frame-x').innerText = e.target.value;
+            drawRadarOverlay();
+            renderSingleEmojiCanvas(activeIdx);
+        };
+        frameYInput.oninput = function(e) {
+            if(!emojiConfigs[activeIdx]) return;
+            emojiConfigs[activeIdx].baseY = parseFloat(e.target.value);
+            document.getElementById('txt-frame-y').innerText = e.target.value;
+            drawRadarOverlay();
+            renderSingleEmojiCanvas(activeIdx);
+        };
+        activeOxInput.oninput = function(e) {
+            if(!emojiConfigs[activeIdx]) return;
+            emojiConfigs[activeIdx].offsetX = parseFloat(e.target.value);
+            document.getElementById('txt-active-ox').innerText = e.target.value;
+            renderSingleEmojiCanvas(activeIdx);
+        };
+        activeOyInput.oninput = function(e) {
+            if(!emojiConfigs[activeIdx]) return;
+            emojiConfigs[activeIdx].offsetY = parseFloat(e.target.value);
+            document.getElementById('txt-active-oy').innerText = e.target.value;
+            renderSingleEmojiCanvas(activeIdx);
+        };
+        activeScaleInput.oninput = function(e) {
+            if(!emojiConfigs[activeIdx]) return;
+            const scaleVal = parseFloat(e.target.value) / 100;
+            emojiConfigs[activeIdx].sizeScale = scaleVal;
+            document.getElementById('txt-active-scale').innerText = scaleVal.toFixed(2);
+            renderSingleEmojiCanvas(activeIdx);
+        };
+
+        dropZone.onclick = () => fileInput.click();
+        fileInput.onchange = (e) => handleFile(e.target.files[0]);
+        dropZone.ondragover = (e) => e.preventDefault();
+        dropZone.ondrop = (e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
+
+        function handleFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() { 
+                    currentImg = img;
+                    hintText.style.display = 'none';
+                    document.getElementById('preview-sec').style.display = 'block';
+                    document.getElementById('result-sec').style.display = 'block';
+                    document.getElementById('download-all').style.display = 'block';
+                    document.getElementById('editor-title').style.display = 'block';
+                    document.getElementById('global-size-group').style.display = 'block';
+                    
+                    previewImg.src = event.target.result;
+                    
+                    emojiConfigs = [];
+                    boxIdCounter = 0;
+                    
+                    // 默认把视窗放大还原为 100%
+                    viewZoomInput.value = 100;
+                    document.getElementById('txt-view-zoom').innerText = '100%';
+                    zoomContainer.style.transform = 'scale(1)';
+
+                    frameXInput.max = img.width;
+                    frameYInput.max = img.height;
+
+                    // 根据大图智能计算初始尺寸
+                    const gw = Math.floor(img.width * 0.18);
+                    document.getElementById('param-global-w').value = gw;
+                    document.getElementById('param-global-h').value = gw;
+                    document.getElementById('txt-global-w').innerText = gw;
+                    document.getElementById('txt-global-h').innerText = gw;
+
+                    // 默认预设5个框
+                    for(let i=0; i<5; i++) {
+                        boxIdCounter++;
+                        emojiConfigs.push({
+                            id: boxIdCounter,
+                            baseX: Math.floor(img.width * 0.05) + i * (gw + 20),
+                            baseY: Math.floor(img.height * 0.2),
+                            baseW: gw, baseH: gw, offsetX: 0, offsetY: 0, sizeScale: 1.0, canvas: null, deleted: false
+                        });
+                    }
+
+                    setTimeout(() => {
+                        // 重置原图大小对应关系
+                        previewImg.style.width = img.width + 'px';
+                        previewImg.style.height = img.height + 'px';
+                        renderAllResultBoxes();
+                        drawRadarOverlay();
+                        selectEmoji(0);
+                        
+                        // 等浏览器完成布局后将滚动视图定位到图片中央
+                        requestAnimationFrame(() => {
+                            void scrollContainer.offsetHeight; // 强制重排
+                            scrollContainer.scrollLeft = Math.max(0, (scrollContainer.scrollWidth - scrollContainer.clientWidth) / 2);
+                            scrollContainer.scrollTop = Math.max(0, (scrollContainer.scrollHeight - scrollContainer.clientHeight) / 2);
+                        });
+                    }, 60);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function refreshEverything() {
+            drawRadarOverlay();
+            emojiConfigs.forEach((c, idx) => renderSingleEmojiCanvas(idx));
+        }
+
+        function drawRadarOverlay() {
+            if (!currentImg) return;
+            overlayCanvas.width = currentImg.width;
+            overlayCanvas.height = currentImg.height;
+            
+            const ctx = overlayCanvas.getContext('2d');
+            ctx.clearRect(0, 0, currentImg.width, currentImg.height);
+
+            emojiConfigs.forEach((config, idx) => {
+                if(config.deleted) return;
+                const x = config.baseX;
+                const y = config.baseY;
+                const w = config.baseW;
+                const h = config.baseH;
+
+                if (idx === activeIdx) {
+                    ctx.strokeStyle = boxColor; 
+                    ctx.lineWidth = 5; // 选中状态框加粗
+                    ctx.fillStyle = hexToRgba(boxColor, 0.25);
+                } else {
+                    ctx.strokeStyle = boxColor; 
+                    ctx.lineWidth = 2;
+                    ctx.fillStyle = hexToRgba(boxColor, 0.06);
+                }
+
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeRect(x, y, w, h);
+            });
+        }
+
+        // 16进制转rgba小工具
+        function hexToRgba(hex, alpha) {
+            let c = hex.substring(1);
+            if(c.length === 3) c = c[0]+c[0]+c[1]+c[1]+c[2]+c[2];
+            const r = parseInt(c.substring(0,2), 16);
+            const g = parseInt(c.substring(2,4), 16);
+            const b = parseInt(c.substring(4,6), 16);
+            return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+        }
+
+        // 视窗 A：拖拽红框本身
+        overlayCanvas.onmousedown = (e) => startOverlayDrag(e);
+        overlayCanvas.ontouchstart = (e) => { if(e.touches.length === 1) startOverlayDrag(e.touches[0]); };
+
+        // 🔎 视窗 A 鼠标滚轮缩放（以光标位置为中心）
+        const scrollContainer = document.querySelector('.canvas-scroll-container');
+        scrollContainer.addEventListener('wheel', function(e) {
+            if (!currentImg) return;
+            e.preventDefault();
+            const currentZoom = parseFloat(viewZoomInput.value) || 100;
+            const delta = e.deltaY > 0 ? -8 : 8;
+            let newZoom = Math.max(50, Math.min(300, currentZoom + delta));
+            if (newZoom === currentZoom) return;
+
+            const scRect = scrollContainer.getBoundingClientRect();
+            const mouseX = e.clientX - scRect.left + scrollContainer.scrollLeft;
+            const mouseY = e.clientY - scRect.top + scrollContainer.scrollTop;
+
+            viewZoomInput.value = newZoom;
+            document.getElementById('txt-view-zoom').innerText = newZoom + '%';
+            zoomContainer.style.transform = `scale(${newZoom / 100})`;
+
+            const ratio = newZoom / currentZoom;
+            scrollContainer.scrollLeft = mouseX * ratio - (e.clientX - scRect.left);
+            scrollContainer.scrollTop = mouseY * ratio - (e.clientY - scRect.top);
+        }, { passive: false });
+
+        function getCanvasScale() {
+            const rect = overlayCanvas.getBoundingClientRect();
+            return {
+                sx: overlayCanvas.width / (rect.width || 1),
+                sy: overlayCanvas.height / (rect.height || 1)
+            };
+        }
+
+        function screenToCanvas(clientX, clientY) {
+            const rect = overlayCanvas.getBoundingClientRect();
+            const scale = getCanvasScale();
+            return {
+                x: (clientX - rect.left) * scale.sx,
+                y: (clientY - rect.top) * scale.sy
+            };
+        }
+
+        function startOverlayDrag(e) {
+            if (e.cancelable) e.preventDefault();
+            const pos = screenToCanvas(e.clientX, e.clientY);
+            const clickX = pos.x;
+            const clickY = pos.y;
+
+            let hitIdx = -1;
+            for (let i = emojiConfigs.length - 1; i >= 0; i--) {
+                const c = emojiConfigs[i];
+                if (c.deleted) continue;
+                if (clickX >= c.baseX && clickX <= c.baseX + c.baseW &&
+                    clickY >= c.baseY && clickY <= c.baseY + c.baseH) {
+                    hitIdx = i;
+                    break;
+                }
+            }
+
+            if (hitIdx !== -1) {
+                selectEmoji(hitIdx);
+                isDraggingBox = true;
+                dragBoxIdx = hitIdx;
+                dragStartMouseX = e.clientX;
+                dragStartMouseY = e.clientY;
+                dragStartBoxX = emojiConfigs[hitIdx].baseX;
+                dragStartBoxY = emojiConfigs[hitIdx].baseY;
+            }
+        }
+
+        function renderAllResultBoxes() {
+            const prevActiveIdx = activeIdx;
+            resultDiv.innerHTML = '';
+
+            emojiConfigs.forEach((config, idx) => {
+                if (config.deleted) return; 
+
+                const box = document.createElement('div');
+                box.className = 'emoji-box' + (prevActiveIdx === idx ? ' active' : '');
+                box.id = `box-${idx}`;
+                
+                // 视窗 B 鼠标拖动绑定
+                box.onmousedown = (e) => startCanvasViewDrag(e, idx);
+                box.ontouchstart = (e) => startCanvasViewDrag(e.touches[0], idx);
+                box.onwheel = (e) => handleWheel(e, idx);
+
+                const delBtn = document.createElement('div');
+                delBtn.className = 'delete-btn';
+                delBtn.innerText = '×';
+                delBtn.onmousedown = (e) => { e.stopPropagation(); deleteEmoji(idx, box); };
+
+                const canvas = document.createElement('canvas');
+                canvas.id = `canvas-${idx}`;
+                config.canvas = canvas;
+
+                const label = document.createElement('small');
+
+                box.appendChild(delBtn); box.appendChild(canvas); box.appendChild(label);
+                resultDiv.appendChild(box);
+
+                renderSingleEmojiCanvas(idx);
+            });
+            updateDisplayNames();
+        }
+
+        function deleteEmoji(idx, element) {
+            element.classList.add('fade-out');
+            setTimeout(() => {
+                emojiConfigs[idx].deleted = true;
+                drawRadarOverlay();
+                renderAllResultBoxes(); 
+                const nextValid = emojiConfigs.findIndex(c => !c.deleted);
+                if (nextValid !== -1) selectEmoji(nextValid);
+                else activePanel.style.display = 'none';
+            }, 180);
+        }
+
+        function renderSingleEmojiCanvas(idx) {
+            const config = emojiConfigs[idx];
+            if (config.deleted || !config.canvas) return;
+            const canvas = config.canvas;
+            const ctx = canvas.getContext('2d');
+
+            const outSize = 240; 
+            canvas.width = outSize; canvas.height = outSize;
+            ctx.clearRect(0, 0, outSize, outSize);
+
+            // 核心公式：基于自由物理框本身(baseX, baseY)派生视野
+            const viewW = config.baseW / config.sizeScale;
+            const viewH = config.baseH / config.sizeScale;
+            const viewX = config.baseX - config.offsetX - (viewW - config.baseW) / 2;
+            const viewY = config.baseY - config.offsetY - (viewH - config.baseH) / 2;
+
+            try {
+                ctx.drawImage(currentImg, viewX, viewY, viewW, viewH, 0, 0, outSize, outSize);
+            } catch(e) {}
+        }
+
+        // 🎯 视窗 B 触发拖拽：此时主人希望红框在原图上反向跟随！
+        function startCanvasViewDrag(e, idx) {
+            if (e.cancelable) e.preventDefault();
+            selectEmoji(idx); 
+            isDraggingCanvasView = true;
+            dragViewStartMouseX = e.clientX || (e.touches && e.touches[0].clientX); 
+            dragViewStartMouseY = e.clientY || (e.touches && e.touches[0].clientY);
+            
+            // 记录最初的物理坐标与视野偏差
+            dragViewStartBoxX = emojiConfigs[idx].baseX;
+            dragViewStartBoxY = emojiConfigs[idx].baseY;
+            dragViewStartOffsetX = emojiConfigs[idx].offsetX; 
+            dragViewStartOffsetY = emojiConfigs[idx].offsetY;
+        }
+
+        function handleWheel(e, idx) {
+            selectEmoji(idx); e.preventDefault(); 
+            const config = emojiConfigs[idx];
+            const scaleAmount = e.deltaY > 0 ? -0.05 : 0.05; 
+            config.sizeScale = Math.min(3.0, Math.max(0.2, config.sizeScale + scaleAmount));
+            renderSingleEmojiCanvas(idx);
+            syncActiveSlidersToUI();
+        }
+
+        window.onmousemove = (e) => handleGlobalMove(e);
+        window.ontouchmove = (e) => handleGlobalMove(e);
+        
+        window.onmouseup = () => { isDraggingBox = false; isDraggingCanvasView = false; };
+        window.ontouchend = () => { isDraggingBox = false; isDraggingCanvasView = false; };
+
+        function handleGlobalMove(e) {
+            if (!currentImg) return;
+            if (isDraggingBox || isDraggingCanvasView) {
+                if (e.cancelable) e.preventDefault();
+            }
+
+            const currentX = e.clientX || (e.touches && e.touches[0].clientX);
+            const currentY = e.clientY || (e.touches && e.touches[0].clientY);
+
+            // 在视窗 A 拖动红框本身
+            if (isDraggingBox && emojiConfigs[dragBoxIdx]) {
+                const dx = currentX - dragStartMouseX;
+                const dy = currentY - dragStartMouseY;
+                
+                const scale = getCanvasScale();
+                let newX = dragStartBoxX + (dx * scale.sx);
+                let newY = dragStartBoxY + (dy * scale.sy);
+                
+                newX = Math.max(0, Math.min(currentImg.width - emojiConfigs[dragBoxIdx].baseW, newX));
+                newY = Math.max(0, Math.min(currentImg.height - emojiConfigs[dragBoxIdx].baseH, newY));
+
+                emojiConfigs[dragBoxIdx].baseX = newX;
+                emojiConfigs[dragBoxIdx].baseY = newY;
+
+                drawRadarOverlay();
+                renderSingleEmojiCanvas(dragBoxIdx);
+                syncActiveSlidersToUI();
+            }
+            // 🎯 在视窗 B 拖动内容：红框反向无缝追踪，保证绝对不乱位置！
+            else if (isDraggingCanvasView && emojiConfigs[activeIdx]) {
+                const config = emojiConfigs[activeIdx];
+                const dx = currentX - dragViewStartMouseX; 
+                const dy = currentY - dragViewStartMouseY;
+                const rect = config.canvas.getBoundingClientRect();
+                
+                const viewW = config.baseW / config.sizeScale;
+                const viewH = config.baseH / config.sizeScale;
+
+                // 换算出图片真实像素级的位移量
+                const pixelDx = dx * (viewW / rect.width);
+                const pixelDy = dy * (viewH / rect.height);
+
+                // 核心重构：不仅改变偏移，同时让外层物理红框反向平移，达到绝对雷达跟随效果
+                let targetBoxX = dragViewStartBoxX - pixelDx;
+                let targetBoxY = dragViewStartBoxY - pixelDy;
+
+                // 限制红框不超过大图边缘
+                targetBoxX = Math.max(0, Math.min(currentImg.width - config.baseW, targetBoxX));
+                targetBoxY = Math.max(0, Math.min(currentImg.height - config.baseH, targetBoxY));
+
+                config.baseX = targetBoxX;
+                config.baseY = targetBoxY;
+
+                drawRadarOverlay();
+                renderSingleEmojiCanvas(activeIdx);
+                syncActiveSlidersToUI();
+            }
+        }
+
+        function updateDisplayNames() {
+            let visibleCount = 0;
+            emojiConfigs.forEach((config, idx) => {
+                if (config.deleted) return;
+                visibleCount++;
+                const label = document.querySelector(`#box-${idx} small`);
+                if (label) label.innerText = `表情 ${visibleCount}`;
+                config.currentDisplayName = visibleCount;
+            });
+            if(emojiConfigs[activeIdx]) {
+                activeNumSpan.innerText = emojiConfigs[activeIdx].currentDisplayName || (activeIdx + 1);
+            }
+        }
+
+        function selectEmoji(idx) {
+            if(!emojiConfigs[idx] || emojiConfigs[idx].deleted) return;
+            activeIdx = idx;
+            document.querySelectorAll('.emoji-box').forEach(el => el.classList.remove('active'));
+            const targetBox = document.getElementById(`box-${idx}`);
+            if(targetBox) targetBox.classList.add('active');
+            
+            activePanel.style.display = 'block';
+            drawRadarOverlay(); 
+            syncActiveSlidersToUI();
+        }
+
+        function syncActiveSlidersToUI() {
+            const config = emojiConfigs[activeIdx];
+            if(!config || config.deleted) return;
+
+            activeNumSpan.innerText = config.currentDisplayName || config.id;
+            
+            frameXInput.value = Math.floor(config.baseX);
+            frameYInput.value = Math.floor(config.baseY);
+            document.getElementById('txt-frame-x').innerText = Math.floor(config.baseX);
+            document.getElementById('txt-frame-y').innerText = Math.floor(config.baseY);
+
+            activeOxInput.value = Math.floor(config.offsetX);
+            activeOyInput.value = Math.floor(config.offsetY);
+            activeScaleInput.value = Math.floor(config.sizeScale * 100);
+
+            document.getElementById('txt-active-ox').innerText = Math.floor(config.offsetX);
+            document.getElementById('txt-active-oy').innerText = Math.floor(config.offsetY);
+            document.getElementById('txt-active-scale').innerText = config.sizeScale.toFixed(2);
+        }
+
+        document.getElementById('download-all').onclick = function() {
+            const validEmojis = emojiConfigs.filter(c => !c.deleted);
+            if (validEmojis.length === 0) return;
+
+            toast.innerText = '📦 正在努力打包中，请稍候喵...';
+            toast.style.display = 'block';
+            
+            setTimeout(() => {
+                if (typeof JSZip !== 'undefined') {
+                    try {
+                        const zip = new JSZip();
+                        const imgFolder = zip.folder("精美表情包切图"); 
+
+                        validEmojis.forEach((config) => {
+                            const canvas = config.canvas;
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                            const base64Data = dataUrl.split(',')[1];
+                            const fileNum = config.currentDisplayName || config.id;
+                            imgFolder.file(`emoji_${String(fileNum).padStart(2, '0')}.jpg`, base64Data, {base64: true});
+                        });
+
+                        zip.generateAsync({type: "blob"}).then(function(content) {
+                            toast.innerText = '✨ 打包成功！已为您开始下载喵~';
+                            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+                            
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(content);
+                            a.download = `雷达全同步高精切图合集.zip`; 
+                            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                        }).catch(() => fallbackDownload(validEmojis));
+                    } catch (e) { fallbackDownload(validEmojis); }
+                } else { fallbackDownload(validEmojis); }
+            }, 300); 
+        };
+
+        function fallbackDownload(validEmojis) {
+            toast.innerText = '🌐 已自动切换为安全连发下载模式喵！';
+            toast.style.display = 'block'; setTimeout(() => { toast.style.display = 'none'; }, 3000);
+            validEmojis.forEach((config, idx) => {
+                setTimeout(() => {
+                    const a = document.createElement('a');
+                    a.href = config.canvas.toDataURL('image/jpeg', 0.95);
+                    const fileNum = config.currentDisplayName || config.id;
+                    a.download = `emoji_${String(fileNum).padStart(2, '0')}.jpg`;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                }, idx * 220);
+            });
+        }
+    </script>
+</body>
+</html>
