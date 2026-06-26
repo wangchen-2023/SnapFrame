@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>可视化雷达对齐·万能表情包切图工具(完美拖拽丝滑版)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #fdf6f0; color: #5a4b41; margin: 0; user-select: none; }
+        .layout { display: flex; height: 100vh; }
+        .sidebar { width: 340px; background: #fff; padding: 20px; border-right: 1px solid #e6dcd3; box-shadow: 2px 0 10px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 14px; overflow-y: auto; z-index: 10; }
+        .main-panel { flex: 1; padding: 20px; overflow-y: auto; background: #faf5f0; display: flex; flex-direction: column; gap: 20px; }
+        
+        .control-group { background: #fdfaf7; padding: 12px; border-radius: 8px; border: 1px solid #ebdcd0; }
+        .control-group label { display: block; font-size: 13px; font-weight: bold; margin-bottom: 8px; color: #8c6d53; }
+        .slider-item { margin-bottom: 10px; }
+        .slider-item div { display: flex; justify-content: space-between; font-size: 12px; color: #a08d80; margin-bottom: 2px; }
+        .slider-item input { width: 100%; min-height: 20px; }
+        .grid-config { display: flex; gap: 10px; margin-bottom: 10px; }
+        .grid-config input { width: 100%; padding: 6px; border: 1px solid #cca485; border-radius: 4px; box-sizing: border-box; }
+
+        #drop-zone { border: 3px dashed #cca485; padding: 15px; background: #fff; cursor: pointer; border-radius: 10px; text-align: center; font-weight: bold; font-size: 14px; }
+        
+        /* 核心对齐视窗 */
+        .preview-section { background: #fff; padding: 15px; border-radius: 10px; border: 1px solid #e6dcd3; text-align: center; display: none; }
+        .section-title { font-size: 14px; font-weight: bold; color: #8c6d53; margin-bottom: 10px; text-align: left; display: flex; align-items: center; gap: 5px; }
+        .canvas-container { position: relative; display: inline-block; max-width: 100%; box-shadow: 0 4px 15px rgba(0,0,0,0.1); border-radius: 4px; overflow: hidden; }
+        #preview-img { display: block; max-width: 100%; height: auto; max-height: 50vh; }
+        #overlay-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; cursor: crosshair; }
+
+        /* 输出切块样式 */
+        .result-section { display: none; }
+        .result-container { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; margin-top: 10px; }
+        
+        .emoji-box { background: #fff; padding: 8px; border: 2px solid #e6dcd3; border-radius: 8px; text-align: center; cursor: move; transition: border-color 0.2s, transform 0.2s; position: relative; }
+        .emoji-box:hover { border-color: #cca485; transform: translateY(-2px); }
+        .emoji-box.active { border-color: #ff7675; box-shadow: 0 0 10px rgba(255,118,117,0.3); }
+        .emoji-box.selected { border-color: #00b894; box-shadow: 0 0 10px rgba(0,184,148,0.3); }
+        .emoji-box canvas { width: 100%; height: auto; display: block; border-radius: 4px; background: #fff; }
+        .emoji-box small { font-size: 12px; color: #a08d80; margin-top: 6px; display: block; pointer-events: none; }
+        .emoji-box.fade-out { opacity: 0; transform: scale(0.5); }
+
+        .delete-btn { position: absolute; top: -8px; right: -8px; width: 22px; height: 22px; background: #ff7675; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 5px rgba(0,0,0,0.2); border: 2px solid #fff; z-index: 5; }
+        .delete-btn:hover { background: #ff4757; transform: scale(1.1); }
+
+        .btn { background: #cca485; color: white; border: none; padding: 12px; border-radius: 6px; font-weight: bold; cursor: pointer; width: 100%; font-size: 14px; }
+        .btn:hover { background: #b58d6f; }
+        
+        #loading-toast { display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(45, 52, 54, 0.95); color: #fff; padding: 14px 28px; border-radius: 20px; font-size: 14px; z-index: 999; box-shadow: 0 4px 15px rgba(0,0,0,0.3); font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <div id="loading-toast">📦 正在努力打包中，请稍候喵...</div>
+
+    <div class="layout">
+        <div class="sidebar">
+            <div id="drop-zone">把任意大图拖到这里开始</div>
+            
+            <div class="control-group">
+                <label>🗺️ 第一步：设置网格行列</label>
+                <div class="grid-config">
+                    <div><span style="font-size:11px;">总行数</span><input type="number" id="grid-rows" value="5" min="1"></div>
+                    <div><span style="font-size:11px;">总列数</span><input type="number" id="grid-cols" value="5" min="1"></div>
+                </div>
+                
+                <label>🎯 第二步：雷达对准操作台</label>
+                <div class="slider-item">
+                    <div><span>左边距起点 (X轴)</span><span id="txt-start-x">0</span></div>
+                    <input type="range" id="param-start-x" min="0" max="1000" value="0">
+                </div>
+                <div class="slider-item">
+                    <div><span>顶边距起点 (Y轴)</span><span id="txt-start-y">0</span></div>
+                    <input type="range" id="param-start-y" min="0" max="1000" value="0">
+                </div>
+                <div class="slider-item">
+                    <div><span>单格宽度 (Width)</span><span id="txt-item-w">100</span></div>
+                    <input type="range" id="param-item-w" min="10" max="1000" value="100">
+                </div>
+                <div class="slider-item">
+                    <div><span>单格高度 (Height)</span><span id="txt-item-h">100</span></div>
+                    <input type="range" id="param-item-h" min="10" max="1000" value="100">
+                </div>
+                <div class="slider-item">
+                    <div><span>格子横向间距</span><span id="txt-gap-x">0</span></div>
+                    <input type="range" id="param-gap-x" min="-50" max="200" value="0">
+                </div>
+                <div class="slider-item">
+                    <div><span>格子纵向间距</span><span id="txt-gap-y">0</span></div>
+                    <input type="range" id="param-gap-y" min="-50" max="200" value="0">
+                </div>
+            </div>
+            
+            <div id="editor-title" style="font-weight: bold; color: #ff7675; text-align: center; display: none;">
+                💡 <span style="color:#8c6d53; font-size:13px;">全新雷达特技已解锁</span><br>
+                <div style="font-size: 12px; color: #a08d80; font-weight: normal; margin-top: 5px; text-align: left; line-height: 1.5;">
+                    🟢 <b>单独挪框</b>：在上方<b>视窗 A</b> 鼠标按住一个红框直接拖，就能只给它挪地方喵！<br>
+                    🟢 <b>多选成组拖</b>：按住键盘 <b>Ctrl 键</b>再点击红框可以多选（变绿色），松开 Ctrl 后拖动其中任何一个，被选中的就会一起整队出发！<br>
+                    ⚪ <b>整体搬运</b>：点空白处拖拽依然能搬运整个网格。<br>
+                    🔍 <b>小图缩放</b>：在下方<b>视窗 B</b> 点击后，<b>鼠标滚轮向上放大/向下缩小</b>。
+                </div>
+            </div>
+
+            <button class="btn" id="download-all" style="display: none; margin-top: auto; background: #ff7675;">🚀 安全下载全部表情包喵</button>
+        </div>
+
+        <div class="main-panel">
+            <input type="file" id="file-input" accept="image/*" style="display: none;">
+            
+            <div id="hint-text" style="text-align: center; color: #a08d80; margin-top: 50px;">
+                <h3>🗺️ 雷达对齐精细切图系统 (多选成组随心拖拽版)</h3>
+                <p>支持多选红框、成组漂移、单独微调，消灭任何恶心边框和错位标签！</p>
+            </div>
+
+            <div class="preview-section" id="preview-sec">
+                <div class="section-title">📡 视窗 A：高级多选雷达对齐视窗（支持单选、Ctrl多选、按住拖拽编队移动）</div>
+                <div class="canvas-container">
+                    <img id="preview-img" src="" alt="原图">
+                    <canvas id="overlay-canvas"></canvas>
+                </div>
+            </div>
+
+            <div class="result-section" id="result-sec">
+                <div class="section-title">✨ 视窗 B：切图结果预览（微信/QQ高精度正方形输出）</div>
+                <div class="result-container" id="result"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const resultDiv = document.getElementById('result');
+        const hintText = document.getElementById('hint-text');
+        const toast = document.getElementById('loading-toast');
+        const previewImg = document.getElementById('preview-img');
+        const overlayCanvas = document.getElementById('overlay-canvas');
+        
+        let currentImg = null;
+        let activeIdx = 0; 
+        let emojiConfigs = [];
+
+        // 状态锁
+        let isDragging = false;     
+        let isDraggingGrid = false; 
+        let dragMode = 'grid';      
+        
+        let startX = 0, startY = 0;
+        let originalOffsetX = 0, originalOffsetY = 0;
+
+        let gridStartX = 0, gridStartY = 0;
+        let originalGridX = 0, originalGridY = 0;
+
+        // 绑定滑块事件
+        const sliders = ['start-x', 'start-y', 'item-w', 'item-h', 'gap-x', 'gap-y'];
+        sliders.forEach(id => {
+            document.getElementById(`param-${id}`).oninput = function(e) {
+                document.getElementById(`txt-${id}`).innerText = e.target.value;
+                recalculateGrid(true);
+            };
+        });
+
+        document.getElementById('grid-rows').oninput = () => { autoInitSliders(currentImg); recalculateGrid(true); };
+        document.getElementById('grid-cols').oninput = () => { autoInitSliders(currentImg); recalculateGrid(true); };
+
+        dropZone.onclick = () => fileInput.click();
+        fileInput.onchange = (e) => handleFile(e.target.files[0]);
+        dropZone.ondragover = (e) => e.preventDefault();
+        dropZone.ondrop = (e) => { e.preventDefault(); handleFile(e.dataTransfer.files[0]); };
+
+        function handleFile(file) {
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const img = new Image();
+                img.onload = function() { 
+                    currentImg = img;
+                    hintText.style.display = 'none';
+                    document.getElementById('preview-sec').style.display = 'block';
+                    document.getElementById('result-sec').style.display = 'block';
+                    document.getElementById('download-all').style.display = 'block';
+                    document.getElementById('editor-title').style.display = 'block';
+                    
+                    previewImg.src = event.target.result;
+                    
+                    setTimeout(() => {
+                        autoInitSliders(img);
+                        recalculateGrid(true);
+                    }, 50);
+                };
+                img.src = event.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function autoInitSliders(img) {
+            if(!img) return;
+            const W = img.width;
+            const H = img.height;
+            const rows = parseInt(document.getElementById('grid-rows').value) || 5;
+            const cols = parseInt(document.getElementById('grid-cols').value) || 5;
+
+            document.getElementById('param-start-x').max = Math.floor(W);
+            document.getElementById('param-start-y').max = Math.floor(H);
+            document.getElementById('param-item-w').max = Math.floor(W / 2);
+            document.getElementById('param-item-h').max = Math.floor(H / 2);
+
+            const initX = Math.floor(W * 0.025);
+            const initY = Math.floor(H * 0.025);
+            const initGapX = Math.floor(W * 0.015);
+            const initGapY = Math.floor(H * 0.032);
+            const initW = Math.floor((W - initX * 2 - initGapX * (cols - 1)) / cols);
+            const initH = Math.floor((H - initY * 2 - initGapY * (rows - 1)) / rows);
+
+            setSliderValue('start-x', initX);
+            setSliderValue('start-y', initY);
+            setSliderValue('item-w', initW);
+            setSliderValue('item-h', initH);
+            setSliderValue('gap-x', initGapX);
+            setSliderValue('gap-y', initGapY);
+        }
+
+        function setSliderValue(id, val) {
+            const el = document.getElementById(`param-${id}`);
+            el.value = val;
+            document.getElementById(`txt-${id}`).innerText = val;
+        }
+
+        // 核心算法修正：增加 regrowHTML 控制开关，完美守住记忆变量
+        function recalculateGrid(regrowHTML = false) {
+            if (!currentImg) return;
+            
+            const rows = parseInt(document.getElementById('grid-rows').value) || 1;
+            const cols = parseInt(document.getElementById('grid-cols').value) || 1;
+            const startX = parseFloat(document.getElementById('param-start-x').value) || 0;
+            const startY = parseFloat(document.getElementById('param-start-y').value) || 0;
+            const itemW = parseFloat(document.getElementById('param-item-w').value) || 100;
+            const itemH = parseFloat(document.getElementById('param-item-h').value) || 100;
+            const gapX = parseFloat(document.getElementById('param-gap-x').value) || 0;
+            const gapY = parseFloat(document.getElementById('param-gap-y').value) || 0;
+
+            const oldConfigs = [...emojiConfigs];
+            emojiConfigs = [];
+            
+            let count = 0;
+            for (let r = 0; r < rows; r++) {
+                for (let c = 0; c < cols; c++) {
+                    count++;
+                    
+                    let oX = 0, oY = 0, sScale = 1.0, isDeleted = false, fX = 0, fY = 0, isSel = false;
+                    let origFX = 0, origFY = 0, oldCanvas = null;
+                    
+                    const match = oldConfigs.find(o => o.id === count);
+                    if(match) {
+                        oX = match.offsetX; oY = match.offsetY; 
+                        sScale = match.sizeScale; isDeleted = match.deleted;
+                        fX = match.frameOffsetX || 0; fY = match.frameOffsetY || 0;
+                        isSel = match.selected || false;
+                        origFX = match.origFrameOffsetX || 0; // 核心保护修复点 1
+                        origFY = match.origFrameOffsetY || 0; // 核心保护修复点 2
+                        oldCanvas = match.canvas;             // 保护现有画布引用
+                    }
+
+                    const bX = startX + c * (itemW + gapX) + fX;
+                    const bY = startY + r * (itemH + gapY) + fY;
+
+                    emojiConfigs.push({
+                        id: count,
+                        baseX: bX, baseY: bY, baseW: itemW, baseH: itemH,
+                        offsetX: oX, offsetY: oY, sizeScale: sScale,
+                        frameOffsetX: fX, frameOffsetY: fY, selected: isSel,
+                        origFrameOffsetX: origFX, origFrameOffsetY: origFY,
+                        canvas: oldCanvas, deleted: isDeleted
+                    });
+                }
+            }
+
+            drawRadarOverlay();
+            
+            if (regrowHTML) {
+                renderAllResultBoxes();
+            } else {
+                // 丝滑微操：只重新绘图，绝对不删 DOM，防闪防卡死
+                emojiConfigs.forEach((config, idx) => {
+                    renderSingleEmojiCanvas(idx);
+                });
+            }
+        }
+
+        function drawRadarOverlay() {
+            if (!currentImg) return;
+            const displayW = previewImg.clientWidth;
+            const displayH = previewImg.clientHeight;
+            overlayCanvas.width = displayW;
+            overlayCanvas.height = displayH;
+            
+            const ctx = overlayCanvas.getContext('2d');
+            ctx.clearRect(0, 0, displayW, displayH);
+
+            const scale = displayW / currentImg.width;
+
+            emojiConfigs.forEach(config => {
+                if(config.deleted) return;
+                const x = config.baseX * scale;
+                const y = config.baseY * scale;
+                const w = config.baseW * scale;
+                const h = config.baseH * scale;
+
+                if (config.selected) {
+                    ctx.strokeStyle = '#00b894'; 
+                    ctx.lineWidth = 3;
+                    ctx.fillStyle = 'rgba(0, 184, 148, 0.22)';
+                } else {
+                    ctx.strokeStyle = '#ff4757'; 
+                    ctx.lineWidth = 2;
+                    ctx.fillStyle = 'rgba(255, 71, 87, 0.12)';
+                }
+
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeRect(x, y, w, h);
+            });
+        }
+
+        window.onresize = drawRadarOverlay;
+
+        overlayCanvas.onmousedown = (e) => startGridDrag(e);
+        overlayCanvas.ontouchstart = (e) => { if(e.touches.length === 1) startGridDrag(e.touches[0]); };
+
+        function startGridDrag(e) {
+            const rect = overlayCanvas.getBoundingClientRect();
+            const clickX = e.clientX - rect.left;
+            const clickY = e.clientY - rect.top;
+
+            const displayW = previewImg.clientWidth;
+            const scale = displayW / currentImg.width;
+
+            const imgClickX = clickX / scale;
+            const imgClickY = clickY / scale;
+
+            let hitIdx = -1;
+            for (let i = 0; i < emojiConfigs.length; i++) {
+                const c = emojiConfigs[i];
+                if (c.deleted) continue;
+                if (imgClickX >= c.baseX && imgClickX <= c.baseX + c.baseW &&
+                    imgClickY >= c.baseY && imgClickY <= c.baseY + c.baseH) {
+                    hitIdx = i;
+                    break;
+                }
+            }
+
+            isDraggingGrid = true;
+            gridStartX = e.clientX;
+            gridStartY = e.clientY;
+
+            if (hitIdx !== -1) {
+                const hitConfig = emojiConfigs[hitIdx];
+                if (e.ctrlKey) {
+                    hitConfig.selected = !hitConfig.selected;
+                } else {
+                    if (!hitConfig.selected) {
+                        emojiConfigs.forEach(c => c.selected = false);
+                        hitConfig.selected = true;
+                    }
+                }
+
+                const anySelected = emojiConfigs.some(c => c.selected);
+                if (anySelected) {
+                    dragMode = 'boxes'; 
+                    emojiConfigs.forEach(c => {
+                        if (c.selected) {
+                            c.origFrameOffsetX = c.frameOffsetX || 0;
+                            c.origFrameOffsetY = c.frameOffsetY || 0;
+                        }
+                    });
+                } else {
+                    dragMode = 'grid';
+                }
+            } else {
+                if (!e.ctrlKey) {
+                    emojiConfigs.forEach(c => c.selected = false);
+                }
+                dragMode = 'grid'; 
+                originalGridX = parseFloat(document.getElementById('param-start-x').value) || 0;
+                originalGridY = parseFloat(document.getElementById('param-start-y').value) || 0;
+            }
+
+            drawRadarOverlay();
+            renderAllResultBoxes(); // 点击落点时刷新一次全 DOM
+        }
+
+        function renderAllResultBoxes() {
+            const prevActiveIdx = activeIdx;
+            resultDiv.innerHTML = '';
+
+            emojiConfigs.forEach((config, idx) => {
+                if (config.deleted) return; 
+
+                const box = document.createElement('div');
+                box.className = 'emoji-box' + 
+                                (prevActiveIdx === idx ? ' active' : '') + 
+                                (config.selected ? ' selected' : '');
+                box.id = `box-${idx}`;
+                
+                box.onmousedown = (e) => startSingleDrag(e, idx);
+                box.ontouchstart = (e) => startSingleDrag(e.touches[0], idx);
+                box.onwheel = (e) => handleWheel(e, idx);
+
+                const delBtn = document.createElement('div');
+                delBtn.className = 'delete-btn';
+                delBtn.innerText = '×';
+                delBtn.onmousedown = (e) => { e.stopPropagation(); deleteEmoji(idx, box); };
+
+                const canvas = document.createElement('canvas');
+                canvas.id = `canvas-${idx}`;
+                config.canvas = canvas;
+
+                const label = document.createElement('small');
+
+                box.appendChild(delBtn); box.appendChild(canvas); box.appendChild(label);
+                resultDiv.appendChild(box);
+
+                renderSingleEmojiCanvas(idx);
+            });
+            updateDisplayNames();
+        }
+
+        function deleteEmoji(idx, element) {
+            element.classList.add('fade-out');
+            setTimeout(() => {
+                emojiConfigs[idx].deleted = true;
+                drawRadarOverlay();
+                renderAllResultBoxes(); 
+                const nextValid = emojiConfigs.findIndex(c => !c.deleted);
+                if (nextValid !== -1) selectEmoji(nextValid);
+            }, 180);
+        }
+
+        function renderSingleEmojiCanvas(idx) {
+            const config = emojiConfigs[idx];
+            if (config.deleted || !config.canvas) return;
+            const canvas = config.canvas;
+            const ctx = canvas.getContext('2d');
+
+            const outSize = 240; 
+            canvas.width = outSize; canvas.height = outSize;
+            ctx.clearRect(0, 0, outSize, outSize);
+
+            const viewW = config.baseW / config.sizeScale;
+            const viewH = config.baseH / config.sizeScale;
+            const viewX = config.baseX - config.offsetX - (viewW - config.baseW) / 2;
+            const viewY = config.baseY - config.offsetY - (viewH - config.baseH) / 2;
+
+            try {
+                ctx.drawImage(currentImg, viewX, viewY, viewW, viewH, 0, 0, outSize, outSize);
+            } catch(e) {}
+        }
+
+        function startSingleDrag(e, idx) {
+            selectEmoji(idx); isDragging = true;
+            startX = e.clientX; startY = e.clientY;
+            originalOffsetX = emojiConfigs[idx].offsetX; originalOffsetY = emojiConfigs[idx].offsetY;
+            e.preventDefault(); 
+        }
+
+        function handleWheel(e, idx) {
+            selectEmoji(idx); e.preventDefault(); 
+            const config = emojiConfigs[idx];
+            const scaleAmount = e.deltaY > 0 ? -0.04 : 0.04; 
+            config.sizeScale = Math.min(3.0, Math.max(0.2, config.sizeScale + scaleAmount));
+            renderSingleEmojiCanvas(idx);
+        }
+
+        window.onmousemove = (e) => handleGlobalMove(e);
+        window.ontouchmove = (e) => { if(e.touches.length > 0) handleGlobalMove(e.touches[0]); };
+        
+        window.onmouseup = () => { isDragging = false; isDraggingGrid = false; };
+        window.ontouchend = () => { isDragging = false; isDraggingGrid = false; };
+
+        function handleGlobalMove(e) {
+            if (!currentImg) return;
+
+            if (isDraggingGrid) {
+                const dx = e.clientX - gridStartX;
+                const dy = e.clientY - gridStartY;
+                const displayW = previewImg.clientWidth;
+                const scale = displayW / currentImg.width;
+
+                const deltaImgX = dx / scale;
+                const deltaImgY = dy / scale;
+
+                if (dragMode === 'grid') {
+                    let newX = originalGridX + deltaImgX;
+                    let newY = originalGridY + deltaImgY;
+                    const inputX = document.getElementById('param-start-x');
+                    const inputY = document.getElementById('param-start-y');
+                    newX = Math.max(0, Math.min(parseFloat(inputX.max), newX));
+                    newY = Math.max(0, Math.min(parseFloat(inputY.max), newY));
+                    setSliderValue('start-x', Math.floor(newX));
+                    setSliderValue('start-y', Math.floor(newY));
+                    recalculateGrid(false); // 拖动时绝不重组HTML，只刷图
+                } else if (dragMode === 'boxes') {
+                    emojiConfigs.forEach(c => {
+                        if (c.selected && !c.deleted) {
+                            c.frameOffsetX = c.origFrameOffsetX + deltaImgX;
+                            c.frameOffsetY = c.origFrameOffsetY + deltaImgY;
+                        }
+                    });
+                    recalculateGrid(false); // 拖动时绝不重组HTML，只刷图
+                }
+            }
+            else if (isDragging && emojiConfigs[activeIdx]) {
+                const config = emojiConfigs[activeIdx];
+                const dx = e.clientX - startX; const dy = e.clientY - startY;
+                const rect = config.canvas.getBoundingClientRect();
+                
+                const viewW = config.baseW / config.sizeScale;
+                const viewH = config.baseH / config.sizeScale;
+
+                config.offsetX = originalOffsetX + (dx * (viewW / rect.width));
+                config.offsetY = originalOffsetY + (dy * (viewH / rect.height));
+                renderSingleEmojiCanvas(activeIdx);
+            }
+        }
+
+        function updateDisplayNames() {
+            let visibleCount = 0;
+            emojiConfigs.forEach((config, idx) => {
+                if (config.deleted) return;
+                visibleCount++;
+                const label = document.querySelector(`#box-${idx} small`);
+                if (label) label.innerText = `表情 ${visibleCount}`;
+                config.currentDisplayName = visibleCount;
+            });
+        }
+
+        function selectEmoji(idx) {
+            if(!emojiConfigs[idx] || emojiConfigs[idx].deleted) return;
+            activeIdx = idx;
+            document.querySelectorAll('.emoji-box').forEach(el => el.classList.remove('active'));
+            const targetBox = document.getElementById(`box-${idx}`);
+            if(targetBox) targetBox.classList.add('active');
+        }
+
+        document.getElementById('download-all').onclick = function() {
+            const validEmojis = emojiConfigs.filter(c => !c.deleted);
+            if (validEmojis.length === 0) return;
+
+            toast.innerText = '📦 正在努力打包中，请稍候喵...';
+            toast.style.display = 'block';
+            
+            setTimeout(() => {
+                if (typeof JSZip !== 'undefined') {
+                    try {
+                        const zip = new JSZip();
+                        const imgFolder = zip.folder("精美表情包切图"); 
+
+                        validEmojis.forEach((config) => {
+                            const canvas = config.canvas;
+                            const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+                            const base64Data = dataUrl.split(',')[1];
+                            const fileNum = config.currentDisplayName || config.id;
+                            imgFolder.file(`emoji_${String(fileNum).padStart(2, '0')}.jpg`, base64Data, {base64: true});
+                        });
+
+                        zip.generateAsync({type: "blob"}).then(function(content) {
+                            toast.innerText = '✨ 打包成功！已为您开始下载喵~';
+                            setTimeout(() => { 
+                                toast.style.display = 'none'; 
+                            }, 3000);
+                            
+                            const a = document.createElement('a');
+                            a.href = URL.createObjectURL(content);
+                            a.download = `小猫娘表情包精修合集.zip`; 
+                            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                        }).catch(() => fallbackDownload(validEmojis));
+                    } catch (e) { fallbackDownload(validEmojis); }
+                } else { fallbackDownload(validEmojis); }
+            }, 300); 
+        };
+
+        function fallbackDownload(validEmojis) {
+            toast.innerText = '🌐 已自动切换为安全连发下载模式喵！';
+            toast.style.display = 'block'; setTimeout(() => { toast.style.display = 'none'; }, 3000);
+            validEmojis.forEach((config, idx) => {
+                setTimeout(() => {
+                    const a = document.createElement('a');
+                    a.href = config.canvas.toDataURL('image/jpeg', 0.95);
+                    const fileNum = config.currentDisplayName || config.id;
+                    a.download = `emoji_${String(fileNum).padStart(2, '0')}.jpg`;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+                }, idx * 220);
+            });
+        }
+    </script>
+</body>
+</html>
